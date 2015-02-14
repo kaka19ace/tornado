@@ -16,14 +16,24 @@
 
 """An I/O event loop for non-blocking sockets.
 
+应用于非阻塞的 socket 的 I/O 事件循环
+
 Typical applications will use a single `IOLoop` object, in the
 `IOLoop.instance` singleton.  The `IOLoop.start` method should usually
 be called at the end of the ``main()`` function.  Atypical applications may
 use more than one `IOLoop`, such as one `IOLoop` per thread, or per `unittest`
 case.
 
+在 IOLoop.instance 单例里, 典型的应用会使用一个简单的 IOLoop object.
+IOLoop.start 方法通常会被 main() 函数末尾调用. 非典型的应用会使用多个
+ IOLoop, 例如每个线程一个 IOLoop, 或者每个 unittest 单元测试例子
+
 In addition to I/O events, the `IOLoop` can also schedule time-based events.
 `IOLoop.add_timeout` is a non-blocking alternative to `time.sleep`.
+
+除了 I/O 事件外, IOLoop 可以调度时间性的事件. IOLoop.add_timeout 是一个非阻塞
+ 'time.sleep'.
+
 """
 
 from __future__ import absolute_import, division, print_function, with_statement
@@ -60,7 +70,7 @@ except ImportError:
 from tornado.platform.auto import set_close_exec, Waker
 
 
-_POLL_TIMEOUT = 3600.0
+_POLL_TIMEOUT = 3600.0  # 默认是 3600 秒, float, 一个小时
 
 
 class TimeoutError(Exception):
@@ -70,13 +80,21 @@ class TimeoutError(Exception):
 class IOLoop(Configurable):
     """A level-triggered I/O loop.
 
+    水平触发的 I/O 循环
+
     We use ``epoll`` (Linux) or ``kqueue`` (BSD and Mac OS X) if they
     are available, or else we fall back on select(). If you are
     implementing a system that needs to handle thousands of
     simultaneous connections, you should use a system that supports
     either ``epoll`` or ``kqueue``.
 
+    如果系统允许, 我们使用 epoll(Linux) 或者 kqueue (BSD 和 Mac OS X),
+    或者我们回归到 select(). 如果你正在实现一个处理上前并发连接的系统时,
+    你应该使用系统支持的 epoll 或者 kqueue
+
     Example usage for a simple TCP server::
+
+    简单的 TCP server 使用样例::
 
         import errno
         import functools
@@ -107,6 +125,7 @@ class IOLoop(Configurable):
 
     """
     # Constants from the epoll module
+    # epoll 模块的常量
     _EPOLLIN = 0x001
     _EPOLLPRI = 0x002
     _EPOLLOUT = 0x004
@@ -117,26 +136,37 @@ class IOLoop(Configurable):
     _EPOLLET = (1 << 31)
 
     # Our events map exactly to the epoll events
+    # 我们的事件映射与 epoll events 一致
+
     NONE = 0
     READ = _EPOLLIN
     WRITE = _EPOLLOUT
     ERROR = _EPOLLERR | _EPOLLHUP
 
     # Global lock for creating global IOLoop instance
+    # 创建全局的 IOLoop instance 的 全局锁.
     _instance_lock = threading.Lock()
 
+    # 线程 local data
     _current = threading.local()
 
     @staticmethod
     def instance():
         """Returns a global `IOLoop` instance.
 
+        返回 全局的 IOLoop instance 实例
+
         Most applications have a single, global `IOLoop` running on the
         main thread.  Use this method to get this instance from
         another thread.  To get the current thread's `IOLoop`, use `current()`.
+
+        大多数应用有一个简单的, 全局的 IOLoop 运行在主线程. 使用该方法可以从其他线程里
+        取到该实例. 为了获得当前线程的 IOLoop 实例, 需要使用 current()
         """
         if not hasattr(IOLoop, "_instance"):
+            # 先判断 _instance 属性是否有赋值
             with IOLoop._instance_lock:
+                # threading.Lock() 实现了 __enter__ 和 __exit_ 上下文进入和关闭的方法
                 if not hasattr(IOLoop, "_instance"):
                     # New instance after double check
                     IOLoop._instance = IOLoop()
@@ -144,23 +174,34 @@ class IOLoop(Configurable):
 
     @staticmethod
     def initialized():
-        """Returns true if the singleton instance has been created."""
+        """Returns true if the singleton instance has been created.
+            返回 true, 如果单例已经存在.
+        """
         return hasattr(IOLoop, "_instance")
 
     def install(self):
         """Installs this `IOLoop` object as the singleton instance.
 
+        安装该 IOLoop object 作为单例实例
+
         This is normally not necessary as `instance()` will create
         an `IOLoop` on demand, but you may want to call `install` to use
         a custom subclass of `IOLoop`.
+
+        通常该调用是非必须的, 因为 instance() 会在需要时创建一个 IOLoop,
+        但你可能想调用 install 来使用定制 IOLoop 的子类
+
         """
+
+        # 说明定制的子类 IOLoop 需要在任何 instance 调用前, 或者 IOLoop 启动前,
+        # 首先 生成一个实例, 然后赋值给 tornado 的 IOLoop._instance
         assert not IOLoop.initialized()
         IOLoop._instance = self
 
     @staticmethod
     def clear_instance():
         """Clear the global `IOLoop` instance.
-
+        清理全局的 IOLoop instance
         .. versionadded:: 4.0
         """
         if hasattr(IOLoop, "_instance"):
@@ -170,11 +211,17 @@ class IOLoop(Configurable):
     def current(instance=True):
         """Returns the current thread's `IOLoop`.
 
+        返回当前线程的 IOLoop
+
         If an `IOLoop` is currently running or has been marked as
         current by `make_current`, returns that instance.  If there is
         no current `IOLoop`, returns `IOLoop.instance()` (i.e. the
         main thread's `IOLoop`, creating one if necessary) if ``instance``
         is true.
+
+        如果一个 IOLoop 是当前运行的或者是被 make_current 标记为当前的, 返回该实例.
+        如果没有一个当前的 IOLoop, 而且 instance 参数为 True, 返回 IOLoop.instance() (i.e. 主线程 IOLoop 在
+        需要时创建)
 
         In general you should use `IOLoop.current` as the default when
         constructing an asynchronous object, and use `IOLoop.instance`
@@ -193,28 +240,41 @@ class IOLoop(Configurable):
     def make_current(self):
         """Makes this the `IOLoop` for the current thread.
 
+        实例方法, 使得 self 作为当前线程的 IOLoop
+
         An `IOLoop` automatically becomes current for its thread
         when it is started, but it is sometimes useful to call
         `make_current` explicitly before starting the `IOLoop`,
         so that code run at startup time can find the right
         instance.
 
+        一个 IOLoop 实例在开始执行时, 自动地成为当前线程的 IOLoop,
+        但是有时候在开始运行 IOLoop 前显示地调用 make_current 是有用的,
+        因此代码在开始时可以找到正确的=实例
+
         .. versionchanged:: 4.1
            An `IOLoop` created while there is no current `IOLoop`
            will automatically become current.
+
+           4.1 版本以及之后, IOLoop 在没有当前 current IOLoop 是会自动地
+           被创建, 并且作为 current
         """
         IOLoop._current.instance = self
 
     @staticmethod
     def clear_current():
+        # IOLoop current 重置 None
         IOLoop._current.instance = None
 
     @classmethod
     def configurable_base(cls):
+        # 在 基类 Configurable __new__ 调用中, 可以准确地找到 真正的派生类 IOLoop
         return IOLoop
 
     @classmethod
     def configurable_default(cls):
+        # 与 configurable_base 作用类似, ioloop 代码上以 IOLoop class 出现,
+        # 而 实际运行的是 IOLoop 的派生类, 根据平台选择 event loop
         if hasattr(select, "epoll"):
             from tornado.platform.epoll import EPollIOLoop
             return EPollIOLoop
@@ -226,6 +286,7 @@ class IOLoop(Configurable):
         return SelectIOLoop
 
     def initialize(self):
+        # 派生类 PollIOLoop initialize 调用时会调用基类初始化 IOLoop 实例
         if IOLoop.current(instance=False) is None:
             self.make_current()
 
@@ -632,11 +693,26 @@ class IOLoop(Configurable):
 class PollIOLoop(IOLoop):
     """Base class for IOLoops built around a select-like function.
 
+    IOLoop 标准围绕 select 的类似的风格创建 function
+
     For concrete implementations, see `tornado.platform.epoll.EPollIOLoop`
     (Linux), `tornado.platform.kqueue.KQueueIOLoop` (BSD and Mac), or
     `tornado.platform.select.SelectIOLoop` (all platforms).
+
+    想了解详细具体的实现, 参见
+    tornado.platform.epoll.EPollIOLoop(Linux)
+    tornado.platform.kqueue.KQueueIOLoop(BSD and Mac)
+    tornado.platform.select.SelectIOLoop(全平台)
     """
     def initialize(self, impl, time_func=None):
+        # 最上一层的基类 Configurable __new__ 中
+        # instance = super(Configurable, cls).__new__(impl)
+        # instance.initialize(**args)
+        #  此时 ioloop.initialize(**args)
+        # platform_ioloop.initialize(**args) 包括 impl 参数, 就是 PollIOLoop 派生类 class
+        # PollIOLoop -> initialize(**args)
+        # IOLoop -> initialize(**args)
+        # self.make_current()
         super(PollIOLoop, self).initialize()
         self._impl = impl
         if hasattr(self._impl, 'fileno'):
