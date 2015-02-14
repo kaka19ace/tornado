@@ -60,12 +60,20 @@ class _TracebackLogger(object):
     never logged.  This violates the Zen of Python: 'Errors should
     never pass silently.  Unless explicitly silenced.'
 
+    此次解决 产生异常集合的 Future 和 Task 的困难问题: 异常发生时, 如果没有人询问异常,
+    则异常不会被记录到. 该问题违反了 Python之禅道: '错误不能沉默地通过, 除非显示地沉默.'
+
     However, we don't want to log the exception as soon as
     set_exception() is called: if the calling code is written
     properly, it will get the exception and handle it properly.  But
     we *do* want to log it if result() or exception() was never called
     -- otherwise developers waste a lot of time wondering why their
     buggy code fails silently.
+
+    然而, 我们不想在 set_exception 被调用时 log 异常: 如果调用代码被正确地书写,
+    那么也会正确地获得异常和并且处理. 但是我们的确想 log 它,　如果 result() 或者
+    exception() 永远不会被调用时 -- 否则开发者会浪费大量的时间想理解为什么他们充满
+    BUG 的代码静悄悄地执行失败
 
     An earlier attempt added a __del__() method to the Future class
     itself, but this backfired because the presence of __del__()
@@ -76,6 +84,12 @@ class _TracebackLogger(object):
     that the helper object doesn't participate in cycles, and only the
     Future has a reference to it.
 
+    一个更简单的尝试是添加一个 __del__() 方法到 Future class 本身, 但是这适得其反,
+    因为 __del__() 的出现破坏了周期性, 阻止了垃圾回收. 一个跳出第22条军规(来自一部
+    讽刺小说)的方法是避免 Future 拥有 __del__() 方法, 相反使用一个带 __del__()
+    方法 helper object 引用来 log traceback, 并且这里我们保证 helper object
+    不参与进回收周期, 而且只有 Future 有一个指向它的引用.
+
     The helper object is added when set_exception() is called.  When
     the Future is collected, and the helper is present, the helper
     object is also collected, and its __del__() method will log the
@@ -83,6 +97,11 @@ class _TracebackLogger(object):
     called (and a helper object is present), it removes the the helper
     object, after calling its clear() method to prevent it from
     logging.
+
+    当 set_exception 被调用时, helper object 被添加进来. 当 Future 被回收时,
+    helper 出现, helper object 同样也被回收, 它的 __del__() 方法会 log traceback.
+    当 Future 的 result() 或者 exception() 方法被调用时 (以及 helper object 出现),
+    移除 helper object时, 在 调用 它的 clear() 方法阻止 logging.
 
     One downside is that we do a fair amount of work to extract the
     traceback from the exception, even when it is never logged.  It
@@ -98,8 +117,20 @@ class _TracebackLogger(object):
     callback extracts the callback, thereby removing the need to
     format the exception.
 
+    一个缺点是我们做了相当数量的工作来将 traceback 从 exception 分离出来,
+    甚至没有任何 log. 看起来仅保存 exception object 应该更节约, 但引用了
+    traceback,　其引用了 stack frames, 而可能引用了 Future, 即也引用了
+    _TracebackLogger, 因此 _TracebackLogger 会被加进循环周期, 这是我们
+    尽量避免的! 因此作为一个优化, 我们不会立即格式化 exception; 我们仅仅做
+    在 activate() 被调用时这些工作, 它会被延迟到所有 Future callback 执行
+    完成后. 因为通常一个 Future 有至少一个 callback  (典型的是 'yield From')
+    以及 callback　通常还有回调, 因此删除了格式化 exception 的需求.
+
     PS. I don't claim credit for this solution.  I first heard of it
     in a discussion about closing files when they are collected.
+
+    附录. 我不主张这种解决方案. 我第一次听说该方案是在一次讨论关于文件关闭
+    时被垃圾回收的问题.
     """
 
     __slots__ = ('exc_info', 'formatted_tb')
